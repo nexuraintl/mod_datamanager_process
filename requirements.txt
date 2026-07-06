@@ -1,5 +1,9 @@
+
 flask
 pymongo
 gunicorn
 openpyxl
 pandas
+=======
+fastapi
+uvicorn[standard]

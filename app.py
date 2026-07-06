@@ -254,6 +254,20 @@ def get_operations(id_item, page):
         "operations": ops[page]
     })
 
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "UP"
+    }), 200
+
+
+@app.route("/version")
+def version():
+    return jsonify({
+        "service": "ms_ia_datamanagerprocess",
+        "version": "1.0.0"
+    }), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
