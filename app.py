@@ -19,7 +19,8 @@ class DataManagerPython:
         ext = os.path.splitext(filename)[1].lower()
 
         if ext in [".csv", ".txt"]:
-            for row in csv.reader(file_bytes.decode("utf-8", errors="ignore").splitlines(),delimiter=delimiter):
+            content = file_bytes.decode("utf-8-sig", errors="ignore")
+            for row in csv.reader(content.splitlines(), delimiter=delimiter):
                 yield row
 
         elif ext == ".xlsx":
