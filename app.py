@@ -1,27 +1,37 @@
 from flask import Flask, request, jsonify
 import csv
 import os
+import re
 from datetime import datetime, timezone
-from bson import ObjectId
 from openpyxl import load_workbook
 import base64
 from io import BytesIO
+
+OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
+
+
+def is_valid_object_id(value):
+    return isinstance(value, str) and bool(OBJECT_ID_RE.match(value))
 
 OPERATIONS_CACHE = {}
 
 app = Flask(__name__)
 
 
-def utc_mongo_now():
+def utc_now_ms():
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 class DataManagerPython:
+
+    def __init__(self):
+        self.global_counter = 1
 
     def leer_archivo(self, file_bytes, filename, delimiter=","):
         ext = os.path.splitext(filename)[1].lower()
 
         if ext in [".csv", ".txt"]:
-            for row in csv.reader(file_bytes.decode("utf-8", errors="ignore").splitlines(), delimiter=delimiter):
+            content = file_bytes.decode("utf-8-sig", errors="ignore")
+            for row in csv.reader(content.splitlines(), delimiter=delimiter):
                 yield row
 
         elif ext == ".xlsx":
@@ -57,7 +67,8 @@ class DataManagerPython:
 
         errores = []
         operations = []
-        now = utc_mongo_now()
+        now = utc_now_ms()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         for index, registro_data in enumerate(data):
             document = {
                 "id_item": id_item,
@@ -80,35 +91,42 @@ class DataManagerPython:
 
             cid = registro_data.get("cid")
             if cid:
-                try:
-                    filter_query["_id"] = ObjectId(cid)
-                except:
+                if is_valid_object_id(cid):
+                    filter_query["_id"] = cid
+                else:
                     errores.append([index + 1, 2])
                     continue
-
             elif lock_fields:
                 for f in lock_fields:
                     filter_query[f] = registro_data.get(f, "")
                 filter_query["id_item"] = id_item
                 filter_query["status"] = "lq"
+            else:
+                unique_id = f"{timestamp}{str(self.global_counter).zfill(8)}"
+                filter_query = {
+                    "id_item": id_item,
+                    "unique_id": unique_id,
+                    "status": "lq"
+                }
+                document["unique_id"] = unique_id
+                self.global_counter += 1
 
             for val in data_config_fields:
                 campo = val["key_ord"]
                 document[campo] = self.get_trim(registro_data.get(campo, ""))
 
-            if filter_query:
-                operations.append({
-                    "updateOne": [
-                        filter_query,
-                        {"$set": document,"$setOnInsert": {"created_at": now}},
-                        {"upsert": True}
-                    ]
-                })
-            else:
-                document["created_at"] = now
-                operations.append({"insertOne": [ document ]})
+            operations.append({
+                "updateOne": [
+                    filter_query,
+                    {
+                        "$set": document,
+                        "$setOnInsert": {"created_at": now}
+                    },
+                    {"upsert": True}
+                ]
+            })
 
-        return {"result": result if not errores else errores, "operations": operations}
+        return {"result": result if not errores else errores, "operations": operations }
 
     def procesar_lote(self, batch_data, data_config, id_item, array_error, processed, config_recalc):
         result = self.save_registro(batch_data, data_config, id_item, config_recalc)
@@ -138,6 +156,7 @@ class DataManagerPython:
         array_error = []
         processed = 0
         all_operations = []
+        self.global_counter = 1
 
         campos_filtro = {}
         for c in data_config["field"]:
@@ -239,7 +258,7 @@ def procesar():
         result = dm.process_save_file(req)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 2
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.get("/operations/<id_item>/page/<int:page>")
 def get_operations(id_item, page):
@@ -269,5 +288,5 @@ def version():
     }), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
