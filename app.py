@@ -17,6 +17,9 @@ def utc_mongo_now():
 
 class DataManagerPython:
 
+    def __init__(self):
+        self.global_counter = 1
+
     def leer_archivo(self, file_bytes, filename, delimiter=","):
         ext = os.path.splitext(filename)[1].lower()
 
@@ -59,6 +62,7 @@ class DataManagerPython:
         errores = []
         operations = []
         now = utc_mongo_now()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         for index, registro_data in enumerate(data):
             document = {
                 "id_item": id_item,
@@ -86,30 +90,37 @@ class DataManagerPython:
                 except:
                     errores.append([index + 1, 2])
                     continue
-
             elif lock_fields:
                 for f in lock_fields:
                     filter_query[f] = registro_data.get(f, "")
                 filter_query["id_item"] = id_item
                 filter_query["status"] = "lq"
+            else:
+                unique_id = f"{timestamp}{str(self.global_counter).zfill(8)}"
+                filter_query = {
+                    "id_item": id_item,
+                    "unique_id": unique_id,
+                    "status": "lq"
+                }
+                document["unique_id"] = unique_id
+                self.global_counter += 1
 
             for val in data_config_fields:
                 campo = val["key_ord"]
                 document[campo] = self.get_trim(registro_data.get(campo, ""))
 
-            if filter_query:
-                operations.append({
-                    "updateOne": [
-                        filter_query,
-                        {"$set": document,"$setOnInsert": {"created_at": now}},
-                        {"upsert": True}
-                    ]
-                })
-            else:
-                document["created_at"] = now
-                operations.append({"insertOne": [ document ]})
+            operations.append({
+                "updateOne": [
+                    filter_query,
+                    {
+                        "$set": document,
+                        "$setOnInsert": {"created_at": now}
+                    },
+                    {"upsert": True}
+                ]
+            })
 
-        return {"result": result if not errores else errores, "operations": operations}
+        return {"result": result if not errores else errores, "operations": operations }
 
     def procesar_lote(self, batch_data, data_config, id_item, array_error, processed, config_recalc):
         result = self.save_registro(batch_data, data_config, id_item, config_recalc)
@@ -139,6 +150,7 @@ class DataManagerPython:
         array_error = []
         processed = 0
         all_operations = []
+        self.global_counter = 1
 
         campos_filtro = {}
         for c in data_config["field"]:
