@@ -1,18 +1,24 @@
 from flask import Flask, request, jsonify
 import csv
 import os
+import re
 from datetime import datetime, timezone
-from bson import ObjectId
 from openpyxl import load_workbook
 import base64
 from io import BytesIO
+
+OBJECT_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
+
+
+def is_valid_object_id(value):
+    return isinstance(value, str) and bool(OBJECT_ID_RE.match(value))
 
 OPERATIONS_CACHE = {}
 
 app = Flask(__name__)
 
 
-def utc_mongo_now():
+def utc_now_ms():
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 class DataManagerPython:
@@ -61,7 +67,7 @@ class DataManagerPython:
 
         errores = []
         operations = []
-        now = utc_mongo_now()
+        now = utc_now_ms()
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         for index, registro_data in enumerate(data):
             document = {
@@ -85,9 +91,9 @@ class DataManagerPython:
 
             cid = registro_data.get("cid")
             if cid:
-                try:
-                    filter_query["_id"] = ObjectId(cid)
-                except:
+                if is_valid_object_id(cid):
+                    filter_query["_id"] = cid
+                else:
                     errores.append([index + 1, 2])
                     continue
             elif lock_fields:
@@ -252,7 +258,7 @@ def procesar():
         result = dm.process_save_file(req)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 2
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.get("/operations/<id_item>/page/<int:page>")
 def get_operations(id_item, page):
@@ -282,4 +288,5 @@ def version():
     }), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

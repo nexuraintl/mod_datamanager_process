@@ -1,0 +1,13 @@
+.git
+.gitignore
+.claude
+.azure-pipelines.yml
+README.md
+__pycache__/
+*.pyc
+.env
+.env.*
+env/
+venv/
+.idea/
+.vscode/
